@@ -44,8 +44,6 @@ This monitoring system runs regular synthetic probes against the **LexAgent API*
 
 The workflow (`workflow.json`) executes the following sequential pipeline:
 
-```mermaid
-flowchart LR
     A[Manual / Cron Trigger] --> B[Config Node<br/><i>LexAgent probe params</i>]
     B --> C[Loop Over Items]
     C --> D[Stamp Start<br/><i>Capture Date.now()</i>]
