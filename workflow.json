@@ -1,0 +1,477 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -864,
+        -368
+      ],
+      "id": "b6340417-7301-45c7-bcea-7ae7ae08ba76",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -496,
+        -336
+      ],
+      "id": "e973a5a5-a54c-4695-8714-3395a665c5e1",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const run_id = 'run_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);\nconst timestamp = new Date().toISOString();\nreturn [{ json: {\n  run_id, timestamp,\n  project: 'LexAgent', endpoint_label: 'POST /research', configured: true, blocker: '',\n  method: 'POST', url: 'http://host.docker.internal:8000/research',\n  body: { session_id: 'n8n-smoke', question: 'Define breach of contract in one short paragraph.', document_ids: [] },\n  timeout_ms: 90000, answer_path: 'answer.summary', min_answer_len: 40, must_contain: 'contract',\n  citations_path: 'answer.sources', citations_required: false, sources_path: '',\n  usage: { input: '', output: '', total: '', model: '' }\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        -240
+      ],
+      "id": "3b146a2d-a804-498e-ac3a-9aff526943d4",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cd5efe50-65c0-4771-8423-198d711ae723",
+              "name": "=started_at",
+              "value": "={{ Date.now() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -336,
+        -176
+      ],
+      "id": "30b3d333-f1a6-4bb1-9cf7-90c7c8672dda",
+      "name": "Stamp Start"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Stamp Start').item.json;\nconst r = $input.item.json;\nconst get = (o, p) => (p ? p.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o) : undefined);\n\nconst out = {\n  run_id: cfg.run_id, timestamp: cfg.timestamp, project: cfg.project,\n  endpoint_label: cfg.endpoint_label, http_status: '', latency_ms: '',\n  validation_status: 'FAIL', error_summary: '',\n  input_tokens: '', output_tokens: '', total_tokens: '', model: '',\n  estimated_cost: '', notes: '', attempt: cfg.attempt || 0, transient: false\n};\n\nif (!cfg.configured) {\n  out.validation_status = 'NOT_CONFIGURED';\n  out.notes = cfg.blocker || 'Endpoint not configured';\n  return { json: out };\n}\n\nout.latency_ms = Date.now() - cfg.started_at;\n\nif (r.error) {\n  out.http_status = 0;\n  out.transient = true;\n  out.error_summary = String(r.error.message || r.error).slice(0, 200);\n  return { json: out };\n}\n\nout.http_status = r.statusCode;\nlet body = r.body;\nif (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) {} }\n\nif (r.statusCode < 200 || r.statusCode >= 300) {\n  out.transient = [502, 503, 504].includes(r.statusCode);\n  out.error_summary = ('HTTP ' + r.statusCode + ' ' + JSON.stringify(body)).slice(0, 200);\n  return { json: out };\n}\n\nconst answer = cfg.answer_path ? get(body, cfg.answer_path) : body;\nif (typeof answer !== 'string' || answer.trim().length < (cfg.min_answer_len || 1)) {\n  out.error_summary = 'HTTP 200 but ' + cfg.answer_path + ' missing or empty';\n  return { json: out };\n}\nif (cfg.must_contain && !answer.toLowerCase().includes(cfg.must_contain.toLowerCase())) {\n  out.error_summary = 'Expected keyword not found in answer';\n  return { json: out };\n}\n\nconst notes = [];\nif (cfg.citations_path) {\n  const c = get(body, cfg.citations_path);\n  const has = Array.isArray(c) ? c.length > 0 : !!c;\n  if (!has && cfg.citations_required) { out.error_summary = 'Citation field empty'; return { json: out }; }\n  notes.push(has ? 'citation field present (presence only, not accuracy)' : 'citation field empty');\n}\nif (cfg.sources_path) {\n  const s = get(body, cfg.sources_path);\n  const has = Array.isArray(s) ? s.length > 0 : !!s;\n  notes.push(has ? 'source metadata present' : 'source metadata absent');\n}\n\nconst u = cfg.usage || {};\nconst pick = (p) => { const v = get(body, p); return v === undefined || v === null ? '' : v; };\nout.input_tokens = pick(u.input);\nout.output_tokens = pick(u.output);\nout.total_tokens = pick(u.total);\nout.model = pick(u.model);\nif (out.total_tokens === '' && out.input_tokens !== '' && out.output_tokens !== '') {\n  out.total_tokens = Number(out.input_tokens) + Number(out.output_tokens);\n}\nif (out.total_tokens === '') notes.push('token usage unavailable');\n\nout.validation_status = 'PASS';\nout.notes = notes.join('; ');\nreturn { json: out };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        -416
+      ],
+      "id": "f4544b64-8271-4422-a27c-aa05198e28b7",
+      "name": "Validate"
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -128,
+        -272
+      ],
+      "id": "fed89da9-a511-4154-a282-141600c87b0d",
+      "name": "HTTP Lexagent",
+      "alwaysOutputData": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1GNc41evyoBxslRXScr-Fsga1vbhra5nivK36ZBlG2M8",
+          "mode": "list",
+          "cachedResultName": "AI_Monitoring_Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1GNc41evyoBxslRXScr-Fsga1vbhra5nivK36ZBlG2M8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1GNc41evyoBxslRXScr-Fsga1vbhra5nivK36ZBlG2M8/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "project",
+              "displayName": "project",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "endpoint_label",
+              "displayName": "endpoint_label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "http_status",
+              "displayName": "http_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "latency_ms",
+              "displayName": "latency_ms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "validation_status",
+              "displayName": "validation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "error_summary",
+              "displayName": "error_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "input_tokens",
+              "displayName": "input_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "output_tokens",
+              "displayName": "output_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "total_tokens",
+              "displayName": "total_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "model",
+              "displayName": "model",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estimated_cost",
+              "displayName": "estimated_cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "attempt",
+              "displayName": "attempt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transient",
+              "displayName": "transient",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        176,
+        -224
+      ],
+      "id": "5ccbc937-0e3a-4be4-817e-c3f8ff919bcc",
+      "name": "Log to Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "DBNDvjkBrocBbUYm",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1700491789",
+        "text": "=AI Monitor FAIL\nProject: {{ $('Validate').item.json.project }}\nRun ID: {{ $('Validate').item.json.run_id }}\nHTTP: {{ $('Validate').item.json.http_status }}\nLatency: {{ $('Validate').item.json.latency_ms }} ms\nError: {{ $('Validate').item.json.error_summary }}\n",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        528,
+        -544
+      ],
+      "id": "8779f504-1936-43e2-9e16-3f4b54ac5c68",
+      "name": "Send a text message",
+      "webhookId": "cc91be3f-d0c0-4dc6-b949-902b8154fc6d",
+      "credentials": {
+        "telegramApi": {
+          "id": "rBk0PDdCcBcuNPif",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "56a60bdf-946f-4f75-a649-3e2bd8b1e9ab",
+              "leftValue": "={{ $json.validation_status.trim() }}",
+              "rightValue": "FAIL",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        304,
+        -448
+      ],
+      "id": "651119b9-57f4-46e1-95e1-83d4314f860a",
+      "name": "FAILED"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Stamp Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp Start": {
+      "main": [
+        [
+          {
+            "node": "HTTP Lexagent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Log to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Lexagent": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FAILED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAILED": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4e0cd137-42bc-4bd2-9a57-63aa6dca8e1e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aff97a7ceb64309aebfcc9c4c723eabff8ee88027d98cae2cde038bcc220aaf7"
+  },
+  "nodeGroups": [],
+  "id": "iwNW5sAglPZYIJj4",
+  "tags": []
+}
